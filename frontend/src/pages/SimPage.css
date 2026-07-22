@@ -126,6 +126,62 @@
 .transcript-box__word    { color: var(--ink2); }
 .transcript-box__filler  { color: var(--red); font-weight: 600; }
 .transcript-box__interim { color: var(--ink3); }
+.transcript-box__placeholder { color: var(--ink3); }
+
+/* 질문/답변 실시간 로그 */
+.qa-live-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.qa-live-empty {
+  font-size: 11px;
+  color: var(--ink3);
+  line-height: 1.6;
+}
+.qa-live-item {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: var(--bg2);
+}
+.qa-live-item--active {
+  border-color: rgba(37,99,235,0.35);
+  background: var(--blue-s);
+}
+.qa-live-q,
+.qa-live-a {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.qa-live-a {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.qa-live-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--red);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.qa-live-label--a { color: var(--blue); }
+.qa-live-text {
+  font-size: 11px;
+  color: var(--ink2);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.qa-live-pending {
+  font-size: 11px;
+  color: var(--ink3);
+  font-style: italic;
+}
 
 /* 인터럽트 로그 */
 .interrupt-log { display: flex; flex-direction: column; gap: 5px; max-height: 120px; overflow-y: auto; }

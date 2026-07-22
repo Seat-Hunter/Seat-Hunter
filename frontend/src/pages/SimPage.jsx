@@ -89,14 +89,16 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const [wpm, setWpm]                         = useState(0);
   const [fillerCount, setFillerCount]         = useState(0);
   const [interruptCount, setInterruptCount]   = useState(0);
-  const [interruptLog, setInterruptLog]       = useState([]);
+  const [qaLog, setQaLog]                     = useState([]);
   const [transcriptWords, setTranscriptWords] = useState([]);
   const [interimText, setInterimText]         = useState('');
+  const [answerInterimText, setAnswerInterimText] = useState('');
   const [audienceMoods, setAudienceMoods]     = useState(() => computeMoods('neutral', memberCount));
   const [bubbleText, setBubbleText]           = useState('');
   const [bubbleVisible, setBubbleVisible]     = useState(false);
   const [bubbleResolved, setBubbleResolved]   = useState(false);
   const [sessionPhase, setSessionPhase]       = useState('presenting');
+  const [activeQuestionId, setActiveQuestionId] = useState(null);
   const [answerMicActive, setAnswerMicActive] = useState(false);
   const [acceptCountdown, setAcceptCountdown] = useState(10);
   const [listenLabel, setListenLabel]         = useState('마이크 듣는 중...');
@@ -117,6 +119,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const fillerCountRef       = useRef(0);
   const wpmHistoryRef        = useRef([]);
   const interruptLogRef      = useRef([]);
+  const qaLogRef             = useRef([]);
   const interruptPendingRef  = useRef(false);
   const interruptCooldownRef = useRef(false);
   const recognitionRef       = useRef(null);
@@ -124,7 +127,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const demoIdxRef           = useRef(0);
   const timerIntervalRef     = useRef(null);
   const transcriptBoxRef     = useRef(null);
-  const interruptLogBoxRef   = useRef(null);
+  const qaLogBoxRef          = useRef(null);
   const stoppedRef           = useRef(false);
   const wsRef                = useRef(null);
   const audioRef             = useRef(null);
@@ -139,6 +142,8 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const mediaRecorderRef     = useRef(null);
   const micStreamRef         = useRef(null);
   const sessionPhaseRef      = useRef('presenting'); // 실시간 피드백(속도/필러/침묵) 판단용
+  const answerInterimTextRef = useRef('');
+  const presInterimTextRef   = useRef(''); // 발표 중 아직 확정 안 된 interim (종료 시 flush용)
   const lastSpeechAtRef      = useRef(Date.now());    // 마지막 발화 시각 (침묵 감지용)
   const silenceFeedbackFiredRef = useRef(false);      // 현재 침묵 구간에서 안내를 이미 보냈는지
   const prevRecentWpmRef     = useRef(0);             // stress score 계산용 직전 구간 WPM
@@ -192,12 +197,141 @@ export default function SimPage({ simState, onStop, onCancel }) {
     setTimeout(() => setLiveFeedback(null), 5000);
   }
 
+  function isPresentationPhase() {
+    const phase = sessionPhaseRef.current;
+    // waiting_question: 질문이 떠 있어도 '질문 받기' 전까지는 발표가 계속되는 상태
+    return phase === 'presenting' || phase === 'waiting_question';
+  }
+
+  function isAnsweringPhase() {
+    const phase = sessionPhaseRef.current;
+    // waiting_answer: TTS 직후 말하기 시작해도 답변으로 수집
+    return phase === 'waiting_answer' || phase === 'answering' || phase === 'evaluating';
+  }
+
+  function appendLocalAnswer(text) {
+    const qId = currentQuestionIdRef.current;
+    if (!qId) return;
+
+    const clean = text.trim();
+    if (!clean) return;
+
+    qaLogRef.current = qaLogRef.current.map(item =>
+      item.id === qId
+        ? { ...item, answer: item.answer ? `${item.answer} ${clean}` : clean }
+        : item
+    );
+    setQaLog([...qaLogRef.current]);
+  }
+
+  function sendAnswerTranscript(text) {
+    const clean = text.trim();
+    if (!clean || isDemoRef.current) return;
+
+    appendLocalAnswer(clean);
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'partial_transcript',
+        text: clean,
+        is_final: true,
+        timestamp_ms: Date.now(),
+        is_answer: true,
+      }));
+    }
+  }
+
+  function flushPendingAnswerText() {
+    const pending = answerInterimTextRef.current.trim();
+    if (!pending) return;
+
+    sendAnswerTranscript(pending);
+    setAnswerInterimText('');
+    answerInterimTextRef.current = '';
+  }
+
+  function flushPendingPresentationText() {
+    const pending = presInterimTextRef.current.trim();
+    if (!pending || isDemoRef.current) return;
+
+    transcriptRef.current += pending + ' ';
+    appendPresentationWords(pending);
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'partial_transcript',
+        text: pending,
+        is_final: true,
+        timestamp_ms: Date.now(),
+        is_answer: false,
+      }));
+    }
+
+    presInterimTextRef.current = '';
+    setInterimText('');
+  }
+
+  function setSessionPhaseSync(phase) {
+    sessionPhaseRef.current = phase;
+    if (phase !== 'presenting' && phase !== 'waiting_question') {
+      // 발표 구간을 벗어날 때 남아있는 발표 interim을 대본으로 확정
+      flushPendingPresentationText();
+      setInterimText('');
+    }
+    if (phase !== 'waiting_answer' && phase !== 'answering' && phase !== 'evaluating') {
+      setAnswerInterimText('');
+      answerInterimTextRef.current = '';
+    }
+    setSessionPhase(phase);
+  }
+
+  function addQaEntry({ id, question, isFollowUp = false, parentId = null }) {
+    const entry = { id, question, answer: '', isFollowUp, parentId };
+    qaLogRef.current = [...qaLogRef.current, entry];
+    setQaLog(qaLogRef.current);
+
+    if (!isFollowUp) {
+      interruptLogRef.current.push(question);
+      setInterruptCount(c => c + 1);
+    }
+  }
+
+  function updateQaAnswer(questionId, answer) {
+    if (!questionId) return;
+    qaLogRef.current = qaLogRef.current.map(item =>
+      item.id === questionId ? { ...item, answer } : item
+    );
+    setQaLog([...qaLogRef.current]);
+  }
+
+  function appendPresentationWords(text) {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return;
+
+    setTranscriptWords(prev => {
+      const parsed = words.map(w => {
+        const clean = w.replace(/[^가-힣a-z]/gi, '');
+        return { text: w, isFiller: FILLERS.includes(clean) };
+      });
+      return [...prev, ...parsed].slice(-80);
+    });
+  }
+
   // ── 텍스트 처리
   function processNewText(text) {
-    if (isTtsPlayingRef.current) return; // TTS 재생 중 차단
-    transcriptRef.current += text;
+    if (isTtsPlayingRef.current) return;
 
-    const isAnswering = answerMicActiveRef.current;
+    if (isAnsweringPhase()) {
+      setAnswerInterimText('');
+      answerInterimTextRef.current = '';
+      sendAnswerTranscript(text);
+      return;
+    }
+
+    if (!isPresentationPhase()) return;
+
+    transcriptRef.current += text;
+    if (!isDemoRef.current) appendPresentationWords(text);
 
     if (!isDemoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
@@ -205,7 +339,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
         text,
         is_final: true,
         timestamp_ms: Date.now(),
-        is_answer: isAnswering, // 답변 모드 여부 전달
+        is_answer: false,
       }));
     }
 
@@ -287,6 +421,16 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const stopSimRef = useRef(null);
   stopSimRef.current = function stopSim(withApplause = false) {
     if (stoppedRef.current) return;
+
+    // 종료 시점에 아직 확정(final) 안 된 마지막 발화를 잃지 않도록 flush
+    // - 발표 중이면 → 발표 대본으로
+    // - 답변 중이면 → 답변으로
+    if (isAnsweringPhase()) {
+      flushPendingAnswerText();
+    } else if (isPresentationPhase()) {
+      flushPendingPresentationText();
+    }
+
     stoppedRef.current = true;
 
     interruptPendingRef.current  = false;
@@ -294,13 +438,45 @@ export default function SimPage({ simState, onStop, onCancel }) {
     clearInterval(timerIntervalRef.current);
     if (recognitionRef.current) recognitionRef.current.stop();
     if (demoTimerRef.current)   clearInterval(demoTimerRef.current);
-    if (wsRef.current)          wsRef.current.close();
+
+    // WS가 열려 있으면 finish_session을 보내 종료를 맡긴다.
+    // (같은 소켓에서 방금 flush한 마지막 발화가 처리된 뒤에 리포트가 생성되도록 순서 보장)
+    const wsOpen = wsRef.current?.readyState === WebSocket.OPEN;
+    if (wsOpen) {
+      const wsToClose = wsRef.current;
+      // 언마운트 cleanup이 소켓을 바로 닫아버리지 않도록 ref에서 분리
+      // (리포트 페이지로 넘어가며 SimPage가 언마운트돼도 백엔드 처리 완료까지 연결 유지)
+      wsRef.current = null;
+      wsToClose.send(JSON.stringify({ type: 'finish_session' }));
+
+      // 여기서 바로 close()하면 방금 보낸 마지막 발화/finish_session이
+      // 백엔드에 도달하기 전에 연결이 끊길 수 있다.
+      // 백엔드가 처리 완료 후 session_finished를 보내고 소켓을 닫아주므로
+      // 그걸 기다리고, 15초 안에 안 오면 안전하게 강제로 닫는다.
+      const closeTimer = setTimeout(() => {
+        try { wsToClose.close(); } catch { /* already closed */ }
+      }, 15000);
+      wsToClose.onmessage = (e) => {
+        try {
+          const m = JSON.parse(e.data);
+          if (m.type === 'session_finished') {
+            clearTimeout(closeTimer);
+            wsToClose.close();
+          }
+        } catch { /* ignore */ }
+      };
+      wsToClose.onclose = () => clearTimeout(closeTimer);
+    } else if (wsRef.current) {
+      wsRef.current.close();
+    }
+
     if (audioRef.current)       { audioRef.current.pause(); audioRef.current = null; }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive')
       mediaRecorderRef.current.stop();
     if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
 
-    if (sessionIdRef.current) {
+    // WS가 닫혀 있었을 때만 REST로 종료 (WS 경로와 중복 호출 시 리포트 생성이 flush보다 먼저 돌 수 있음)
+    if (sessionIdRef.current && !wsOpen) {
       endSession(sessionIdRef.current).catch(console.error);
     }
 
@@ -311,6 +487,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
       fillerCount:  fillerCountRef.current,
       wpmHistory:   wpmHistoryRef.current,
       interruptLog: interruptLogRef.current,
+      qaLog:        qaLogRef.current,
     };
 
     if (withApplause) {
@@ -382,9 +559,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
 
         setTimeout(() => {
           if (stoppedRef.current) return;
-          interruptLogRef.current.push(question);
-          setInterruptCount(c => c + 1);
-          setInterruptLog([...interruptLogRef.current]);
+          const demoQId = `demo_q_${qaLogRef.current.length + 1}`;
+          addQaEntry({ id: demoQId, question });
+          setActiveQuestionId(demoQId);
           setBubbleText(question);
           setBubbleVisible(true);
 
@@ -449,15 +626,18 @@ export default function SimPage({ simState, onStop, onCancel }) {
 
             case 'interrupt_question':
               currentQuestionIdRef.current = msg.question_id;
-              if (!msg.is_follow_up) {
-                interruptLogRef.current.push(msg.question_text);
-                setInterruptCount(c => c + 1);
-                setInterruptLog([...interruptLogRef.current]);
-              }
+              setActiveQuestionId(msg.question_id);
+              addQaEntry({
+                id: msg.question_id,
+                question: msg.question_text,
+                isFollowUp: !!msg.is_follow_up,
+                parentId: msg.parent_question_id ?? null,
+              });
               setBubbleText(msg.question_text);
               setBubbleVisible(true);
-              isTtsPlayingRef.current = true;
-              setSessionPhase('waiting_question'); // 질문 받기 버튼 표시
+              // 질문이 떠도 TTS는 '질문 받기' 이후에 재생되므로 여기서 STT를 막지 않는다.
+              // (질문 받기 전까지 발표 STT가 대본에 계속 들어가야 함)
+              setSessionPhaseSync('waiting_question'); // 질문 받기 버튼 표시
               applyQuestionRef.current();
               break;
 
@@ -466,12 +646,12 @@ export default function SimPage({ simState, onStop, onCancel }) {
               if (msg.question_text) setBubbleText(msg.question_text);
               if (msg.question_id) currentQuestionIdRef.current = msg.question_id;
               isTtsPlayingRef.current = true;
-              setSessionPhase('questioning'); // TTS 재생 중
+              setSessionPhaseSync('questioning'); // TTS 재생 중
               const audio = new Audio(`data:audio/${msg.format ?? 'mp3'};base64,${msg.audio_base64}`);
               audioRef.current = audio;
               const fallback = setTimeout(() => {
                 isTtsPlayingRef.current = false;
-                setSessionPhase('waiting_answer');
+                setSessionPhaseSync('waiting_answer');
                 if (ws.readyState === WebSocket.OPEN)
                   ws.send(JSON.stringify({ type: 'tts_finished', question_id: msg.question_id ?? 'q' }));
               }, 15000);
@@ -479,7 +659,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
                 clearTimeout(fallback);
                 audioRef.current = null;
                 isTtsPlayingRef.current = false;
-                setSessionPhase('waiting_answer'); // 답변하기 버튼 표시
+                setSessionPhaseSync('waiting_answer'); // 답변하기 버튼 표시
                 if (ws.readyState === WebSocket.OPEN)
                   ws.send(JSON.stringify({ type: 'tts_finished', question_id: msg.question_id ?? 'q' }));
               };
@@ -487,14 +667,14 @@ export default function SimPage({ simState, onStop, onCancel }) {
                 clearTimeout(fallback);
                 audioRef.current = null;
                 isTtsPlayingRef.current = false;
-                setSessionPhase('waiting_answer');
+                setSessionPhaseSync('waiting_answer');
                 if (ws.readyState === WebSocket.OPEN)
                   ws.send(JSON.stringify({ type: 'tts_finished', question_id: msg.question_id ?? 'q' }));
               };
               audio.play().catch(() => {
                 clearTimeout(fallback);
                 isTtsPlayingRef.current = false;
-                setSessionPhase('waiting_answer');
+                setSessionPhaseSync('waiting_answer');
                 if (ws.readyState === WebSocket.OPEN)
                   ws.send(JSON.stringify({ type: 'tts_finished', question_id: msg.question_id ?? 'q' }));
               });
@@ -505,11 +685,21 @@ export default function SimPage({ simState, onStop, onCancel }) {
               // 백엔드가 tts_finished 후 보내는 신호 — 이미 waiting_answer 상태이므로 무시
               break;
 
+            case 'answer_partial_collected':
+              updateQaAnswer(msg.question_id, msg.answer_so_far ?? '');
+              break;
+
+            case 'answer_evaluated':
+              updateQaAnswer(msg.question_id, msg.user_answer ?? '');
+              setAnswerInterimText('');
+              break;
+
             case 'stop_tts':
               if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
               isTtsPlayingRef.current = false;
               setBubbleVisible(false);
-              setSessionPhase('presenting');
+              setSessionPhaseSync('presenting');
+              setActiveQuestionId(null);
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
               clearQuestionRef.current();
@@ -519,8 +709,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
               isTtsPlayingRef.current = false;
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
+              setActiveQuestionId(null);
+              setAnswerInterimText('');
               setBubbleResolved(true);
-              setSessionPhase('presenting');
+              setSessionPhaseSync('presenting');
               setTimeout(() => {
                 setBubbleVisible(false);
                 setBubbleResolved(false);
@@ -534,9 +726,11 @@ export default function SimPage({ simState, onStop, onCancel }) {
               isTtsPlayingRef.current = false;
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
+              setActiveQuestionId(null);
+              setAnswerInterimText('');
               setBubbleVisible(false);
               setBubbleText('');
-              setSessionPhase('presenting');
+              setSessionPhaseSync('presenting');
               clearQuestionRef.current();
               break;
 
@@ -558,6 +752,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
               if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
               if (stoppedRef.current) return;
               if (isTtsPlayingRef.current) return;
+              if (sessionPhaseRef.current !== 'presenting' && sessionPhaseRef.current !== 'waiting_question') return;
+              // Web Speech가 동작 중이면 Deepgram은 사용하지 않는다.
+              // (두 STT가 같은 발화를 각각 저장해 대본이 중복되는 문제 방지)
+              if (recognitionRef.current) return;
               const buf = await e.data.arrayBuffer();
               const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
               wsRef.current.send(JSON.stringify({ type: 'audio_chunk', timestamp_ms: Date.now(), audio_base64: b64 }));
@@ -637,9 +835,18 @@ export default function SimPage({ simState, onStop, onCancel }) {
         if (final) {
           // Web Speech final → 밝은색 확정 자막 + 백엔드 전송
           setInterimText('');
+          presInterimTextRef.current = '';
           processNewText(final);
         } else if (interim) {
-          // interim → 어두운색 임시 자막 표시 (WPM은 timerIntervalRef의 1초 틱에서 계산)
+          if (isAnsweringPhase()) {
+            answerInterimTextRef.current = interim;
+            setAnswerInterimText(interim);
+            return;
+          }
+
+          if (!isPresentationPhase()) return;
+
+          presInterimTextRef.current = interim;
           setInterimText(interim);
 
           // 발화가 들어왔으므로 침묵 감지 타이머 초기화
@@ -686,9 +893,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
   }, [transcriptWords]);
 
   useEffect(() => {
-    if (interruptLogBoxRef.current)
-      interruptLogBoxRef.current.scrollTop = interruptLogBoxRef.current.scrollHeight;
-  }, [interruptLog]);
+    if (qaLogBoxRef.current)
+      qaLogBoxRef.current.scrollTop = qaLogBoxRef.current.scrollHeight;
+  }, [qaLog, answerInterimText]);
 
   // ── 파생 값
   const remaining = totalSec - elapsed;
@@ -725,7 +932,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
             <button className="phase-action-btn phase-action-btn--red" onClick={() => {
               if (wsRef.current?.readyState === WebSocket.OPEN)
                 wsRef.current.send(JSON.stringify({ type: 'accept_question', question_id: currentQuestionIdRef.current }));
-              setSessionPhase('questioning');
+              setSessionPhaseSync('questioning');
             }}>🎤 질문 받기</button>
           </div>
         )}
@@ -742,9 +949,11 @@ export default function SimPage({ simState, onStop, onCancel }) {
             <div className="phase-overlay__title">답변 준비</div>
             <div className="phase-overlay__sub" style={{ marginBottom: 12 }}>마이크를 켜고 답변하세요</div>
             <button className="phase-action-btn phase-action-btn--blue" onClick={() => {
+              sessionPhaseRef.current = 'answering';
+              setActiveQuestionId(currentQuestionIdRef.current);
               if (wsRef.current?.readyState === WebSocket.OPEN)
                 wsRef.current.send(JSON.stringify({ type: 'answer_started', question_id: currentQuestionIdRef.current }));
-              setSessionPhase('answering');
+              setSessionPhaseSync('answering');
               setAnswerMicActive(true);
             }}>🎙 답변하기</button>
           </div>
@@ -755,9 +964,15 @@ export default function SimPage({ simState, onStop, onCancel }) {
             <div className="phase-overlay__title">답변 중</div>
             <div className="phase-overlay__sub" style={{ marginBottom: 12 }}>마이크에 대고 답변하세요</div>
             <button className="phase-action-btn phase-action-btn--blue" onClick={() => {
+              const pendingInterim = answerInterimTextRef.current.trim();
+              flushPendingAnswerText();
               if (wsRef.current?.readyState === WebSocket.OPEN)
-                wsRef.current.send(JSON.stringify({ type: 'answer_finished', question_id: currentQuestionIdRef.current }));
-              setSessionPhase('evaluating');
+                wsRef.current.send(JSON.stringify({
+                  type: 'answer_finished',
+                  question_id: currentQuestionIdRef.current,
+                  pending_answer_text: pendingInterim,
+                }));
+              setSessionPhaseSync('evaluating');
               setAnswerMicActive(false);
             }}>✅ 답변 완료</button>
           </div>
@@ -872,15 +1087,15 @@ export default function SimPage({ simState, onStop, onCancel }) {
         </div>
 
         <div className="hud-section">
-          <div className="hud__title">발화 텍스트</div>
+          <div className="hud__title">발표 스크립트</div>
           <div className="transcript-box" ref={transcriptBoxRef}>
             {demoMode ? (
               demoCurrentText
                 ? <span className="transcript-box__word">{demoCurrentText}</span>
-                : <span>대기 중...</span>
+                : <span className="transcript-box__placeholder">발표 내용이 여기에 표시됩니다.</span>
             ) : (
               transcriptWords.length === 0 && !interimText ? (
-                <span>대기 중...</span>
+                <span className="transcript-box__placeholder">발표 내용이 여기에 표시됩니다.</span>
               ) : (
                 <>
                   {transcriptWords.map((w, i) => (
@@ -895,18 +1110,44 @@ export default function SimPage({ simState, onStop, onCancel }) {
           </div>
         </div>
 
-        {interruptLog.length > 0 && (
-          <div className="hud-section">
-            <div className="hud__title">질문 기록</div>
-            <div className="interrupt-log" ref={interruptLogBoxRef}>
-              {interruptLog.map((q, i) => (
-                <div key={i} className="log-item">
-                  <span style={{ fontWeight: 600, color: 'var(--red)' }}>Q{i + 1} </span>{q}
+        <div className="hud-section">
+          <div className="hud__title">질문 / 답변</div>
+          <div className="qa-live-log" ref={qaLogBoxRef}>
+            {qaLog.length === 0 ? (
+              <span className="qa-live-empty">질문이 나오면 여기에 표시됩니다.</span>
+            ) : qaLog.map((item, i) => {
+              const showInterim = item.id === activeQuestionId && answerInterimText;
+              const answerText = item.answer || (showInterim ? answerInterimText : '');
+
+              return (
+                <div
+                  key={item.id ?? i}
+                  className={`qa-live-item${item.id === activeQuestionId ? ' qa-live-item--active' : ''}`}
+                >
+                  <div className="qa-live-q">
+                    <span className="qa-live-label">
+                      {item.isFollowUp ? `꼬리질문 ${i + 1}` : `질문 ${i + 1}`}
+                    </span>
+                    <div className="qa-live-text">{item.question}</div>
+                  </div>
+                  <div className="qa-live-a">
+                    <span className="qa-live-label qa-live-label--a">답변</span>
+                    {answerText ? (
+                      <div className="qa-live-text">
+                        {item.answer}
+                        {showInterim && (
+                          <span className="transcript-box__interim">{answerInterimText}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="qa-live-pending">답변 대기 중...</div>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        )}
+        </div>
 
         <div className="hud-section">
           <button className="btn-stop" onClick={() => stopSimRef.current()}>발표 종료</button>

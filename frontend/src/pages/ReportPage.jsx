@@ -6,6 +6,43 @@ const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 const LOGO = <span style={{ fontSize: 14 }}>🙋</span>;
 
+function buildReportAnswers(apiAnswers, qaLog) {
+  const map = new Map();
+
+  (apiAnswers || []).forEach(a => {
+    if (a.question_id) map.set(a.question_id, { ...a });
+  });
+
+  (qaLog || []).forEach(q => {
+    const existing = map.get(q.id);
+    if (existing) {
+      if (!existing.answer_text?.trim() && q.answer?.trim()) {
+        map.set(q.id, { ...existing, answer_text: q.answer });
+      }
+    } else {
+      map.set(q.id, {
+        question_id: q.id,
+        parent_question_id: q.parentId ?? q.id,
+        question_text: q.question,
+        answer_text: q.answer || '',
+        is_follow_up: q.isFollowUp,
+      });
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function groupAnswersByParent(answers) {
+  const parentMap = {};
+  answers.forEach(a => {
+    const pid = a.parent_question_id ?? a.question_id;
+    if (!parentMap[pid]) parentMap[pid] = [];
+    parentMap[pid].push(a);
+  });
+  return parentMap;
+}
+
 function ScriptToggle({ sessionId }) {
   const [open,    setOpen]    = useState(false);
   const [script,  setScript]  = useState(null);
@@ -37,6 +74,7 @@ function ScriptToggle({ sessionId }) {
         <span className="script-toggle-left">
           <span className="script-toggle-icon">📝</span>
           <span className="script-toggle-label">발표 대본</span>
+          <span className="script-toggle-hint">질문·답변 제외</span>
         </span>
         <span className={`script-chevron${open ? ' open' : ''}`}>▾</span>
       </button>
@@ -69,7 +107,7 @@ function scoreColor(score) {
 }
 
 export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
-  const { type, difficulty, elapsed, fillerCount, wpmHistory, interruptLog, sessionId } = simState;
+  const { type, difficulty, elapsed, fillerCount, wpmHistory, interruptLog, qaLog, sessionId } = simState;
 
   const [reportData, setReportData]       = useState(null);
   const [backendReport, setBackendReport] = useState(null);
@@ -124,9 +162,12 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
     if (!sessionId) return;
     fetch(`${API}/api/v1/sessions/${sessionId}/answers`)
       .then(r => r.ok ? r.json() : [])
-      .then(arr => setAnswers(Array.isArray(arr) ? arr : []))
-      .catch(() => setAnswers([]));
-  }, [sessionId]);
+      .then(arr => {
+        const apiAnswers = Array.isArray(arr) ? arr : [];
+        setAnswers(buildReportAnswers(apiAnswers, qaLog));
+      })
+      .catch(() => setAnswers(buildReportAnswers([], qaLog)));
+  }, [sessionId, qaLog]);
 
   const displayAvgWpm     = backendReport?.avg_wpm         ?? avgWpm;
   const displayFiller     = backendReport?.filler_count    ?? fillerCount;
@@ -257,47 +298,37 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
         {/* 발표 대본 */}
         {sessionId && <ScriptToggle sessionId={sessionId} />}
 
-        {/* 인터럽트 로그 */}
+        {/* 돌발 질문 & 답변 */}
         <div className="feedback-section">
           <div className="feedback-section__title">돌발 질문 & 답변 기록</div>
           <div className="qa-list">
             {answers.length > 0 ? (() => {
-              // parent_question_id 기준으로 그룹핑
-              const parentMap = {};
-              answers.forEach(a => {
-                const pid = a.parent_question_id ?? a.question_id;
-                if (!parentMap[pid]) parentMap[pid] = [];
-                parentMap[pid].push(a);
-              });
+              const parentMap = groupAnswersByParent(answers);
               let qNum = 0;
               return Object.entries(parentMap).map(([pid, group]) => {
                 qNum++;
                 return (
-                  <div key={pid} style={{ marginBottom: 16 }}>
+                  <div key={pid} className="qa-group">
                     {group.map((a, subIdx) => {
                       const label = subIdx === 0 ? `Q${qNum}` : `Q${qNum}-${subIdx}`;
-                      const isFollowUp = subIdx > 0;
+                      const isFollowUp = subIdx > 0 || a.is_follow_up;
                       return (
-                        <div key={a.question_id ?? subIdx} className="qa-item" style={{
-                          borderLeft: isFollowUp ? '3px solid var(--amber)' : '3px solid var(--red)',
-                          background: isFollowUp ? 'var(--amber-s)' : 'var(--red-s)',
-                          marginBottom: 8,
-                        }}>
-                          <div className="qa-item__label" style={{ color: isFollowUp ? 'var(--amber)' : 'var(--red)' }}>
+                        <div key={a.question_id ?? subIdx} className={`qa-item${isFollowUp ? ' qa-item--followup' : ''}`}>
+                          <div className={`qa-item__label${isFollowUp ? ' qa-item__label--followup' : ''}`}>
                             {label} {isFollowUp ? '꼬리질문' : ''}
                             {a.answer_score != null && (
-                              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink3)', fontWeight: 400 }}>
+                              <span className="qa-item__score">
                                 답변 점수: {Math.round(a.answer_score)}
                               </span>
                             )}
                           </div>
-                          <div style={{ marginBottom: 6 }}>{a.question_text}</div>
-                          {a.answer_text && (
-                            <div style={{ background: 'white', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: 'var(--ink2)', lineHeight: 1.6 }}>
-                              <span style={{ fontWeight: 600, color: 'var(--blue)', marginRight: 6 }}>답변</span>
-                              {a.answer_text}
+                          <div className="qa-item__question">{a.question_text}</div>
+                          <div className="qa-item__answer">
+                            <span className="qa-item__answer-label">답변</span>
+                            <div className="qa-item__answer-text">
+                              {a.answer_text?.trim() ? a.answer_text : '답변 없음'}
                             </div>
-                          )}
+                          </div>
                         </div>
                       );
                     })}
@@ -309,7 +340,11 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
             ) : interruptLog.map((q, i) => (
               <div key={i} className="qa-item">
                 <div className="qa-item__label">질문 {i + 1}</div>
-                {q}
+                <div className="qa-item__question">{q}</div>
+                <div className="qa-item__answer">
+                  <span className="qa-item__answer-label">답변</span>
+                  <div className="qa-item__answer-text qa-item__answer-text--empty">답변 없음</div>
+                </div>
               </div>
             ))}
           </div>
