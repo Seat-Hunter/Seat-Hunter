@@ -333,10 +333,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
     transcriptRef.current += text;
     if (!isDemoRef.current) appendPresentationWords(text);
 
-    // 발표(presenting) 중에는 Deepgram(audio_chunk)이 WPM/필러 분석을 전담한다.
-    // Web Speech final까지 같이 보내면 백엔드 on_final_transcript가 이중 집계되어
-    // WPM이 튀는 문제가 있었음 — 답변(ANSWERING) 중에만 전송.
-    if (isAnswering && !isDemoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+    // Deepgram(audio_chunk)은 Web Speech 동작 중엔 전송되지 않으므로(recognitionRef 가드),
+    // 발표 중 분석은 Web Speech final을 그대로 백엔드로 보내는 것으로 처리한다.
+    if (!isDemoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'partial_transcript',
         text,
