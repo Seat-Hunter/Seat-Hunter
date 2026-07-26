@@ -73,54 +73,15 @@
 .curriculum-text { font-size: 14px; line-height: 1.65; color: var(--blue); font-weight: 500; }
 
 /* QA */
-.qa-list { display: flex; flex-direction: column; gap: 12px; }
-.qa-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.qa-list { display: flex; flex-direction: column; gap: 10px; }
 .qa-item {
   border-left: 3px solid var(--red);
-  padding: 12px 14px;
-  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  border-radius: 0 7px 7px 0;
   background: var(--red-s);
   font-size: 13px; line-height: 1.6; color: var(--ink2);
 }
-.qa-item--followup {
-  border-left-color: var(--amber);
-  background: var(--amber-s);
-}
-.qa-item__label {
-  font-size: 11px; font-weight: 600; color: var(--red); margin-bottom: 6px;
-}
-.qa-item__label--followup { color: var(--amber); }
-.qa-item__score {
-  margin-left: 8px; font-size: 11px; color: var(--ink3); font-weight: 400;
-}
-.qa-item__question {
-  font-size: 13px; color: var(--ink2); line-height: 1.6; margin-bottom: 10px;
-}
-.qa-item__answer {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 10px 12px;
-}
-.qa-item__answer-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--blue);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 6px;
-}
-.qa-item__answer-text {
-  font-size: 12px;
-  color: var(--ink2);
-  line-height: 1.7;
-  white-space: pre-wrap;
-}
-.qa-item__answer-text--empty {
-  color: var(--ink3);
-  font-style: italic;
-}
+.qa-item__label { font-size: 11px; font-weight: 600; color: var(--red); margin-bottom: 4px; }
 .qa-empty { font-size: 13px; color: var(--ink3); }
 
 /* 재시작 버튼 */
@@ -149,9 +110,6 @@
 .script-toggle-label {
   font-size: 12px; font-weight: 700; color: var(--ink3);
   text-transform: uppercase; letter-spacing: 0.5px;
-}
-.script-toggle-hint {
-  font-size: 11px; font-weight: 500; color: var(--ink3); margin-left: 8px;
 }
 .script-chevron { font-size: 15px; color: var(--ink3); transition: transform 0.2s; display: inline-block; }
 .script-chevron.open { transform: rotate(180deg); }
