@@ -121,7 +121,7 @@
   background: var(--bg2); border: 1px solid var(--border); border-radius: 7px;
   padding: 10px 12px; font-size: 11px; line-height: 1.8;
   color: var(--ink3); overflow-y: auto;
-  min-height: 80px; max-height: 120px; margin-top: 8px;
+  min-height: 100px; max-height: 220px; margin-top: 8px;
 }
 .transcript-box__word    { color: var(--ink2); }
 .transcript-box__filler  { color: var(--red); font-weight: 600; }
@@ -133,6 +133,65 @@
   font-size: 11px; color: var(--ink2);
   border-left: 2px solid var(--border2);
   padding-left: 8px; line-height: 1.5;
+}
+
+/* 질문 · 답변 실시간 패널 */
+.qa-live {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.qa-live__empty {
+  font-size: 11px;
+  color: var(--ink3);
+}
+.qa-live__item {
+  border-left: 2px solid var(--red);
+  padding-left: 8px;
+  line-height: 1.55;
+}
+.qa-live__item--follow {
+  border-left-color: var(--amber);
+  margin-left: 8px;
+}
+.qa-live__item--active {
+  background: rgba(37, 99, 235, 0.04);
+  border-radius: 4px;
+  padding: 6px 8px 6px 10px;
+  margin-left: -2px;
+}
+.qa-live__question,
+.qa-live__answer {
+  font-size: 11px;
+  color: var(--ink2);
+}
+.qa-live__answer {
+  margin-top: 5px;
+  color: var(--blue);
+}
+.qa-live__answer--pending {
+  color: var(--ink3);
+  font-style: italic;
+}
+.qa-live__label {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 4px;
+  font-weight: 700;
+  color: var(--red);
+}
+.qa-live__label--answer {
+  color: var(--blue);
+}
+.qa-live__interim {
+  color: var(--ink3);
 }
 
 /* 종료 버튼 */

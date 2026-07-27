@@ -90,6 +90,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const [fillerCount, setFillerCount]         = useState(0);
   const [interruptCount, setInterruptCount]   = useState(0);
   const [interruptLog, setInterruptLog]       = useState([]);
+  const [qaLog, setQaLog]                     = useState([]);
+  const [activeQuestionId, setActiveQuestionId] = useState(null);
+  const [answerInterimText, setAnswerInterimText] = useState('');
   const [transcriptWords, setTranscriptWords] = useState([]);
   const [interimText, setInterimText]         = useState('');
   const [audienceMoods, setAudienceMoods]     = useState(() => computeMoods('neutral', memberCount));
@@ -117,6 +120,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const fillerCountRef       = useRef(0);
   const wpmHistoryRef        = useRef([]);
   const interruptLogRef      = useRef([]);
+  const qaLogRef             = useRef([]);
+  const activeQuestionIdRef  = useRef(null);
+  const answerInterimTextRef = useRef('');
   const interruptPendingRef  = useRef(false);
   const interruptCooldownRef = useRef(false);
   const recognitionRef       = useRef(null);
@@ -124,6 +130,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const demoIdxRef           = useRef(0);
   const timerIntervalRef     = useRef(null);
   const transcriptBoxRef     = useRef(null);
+  const qaLogBoxRef          = useRef(null);
   const interruptLogBoxRef   = useRef(null);
   const stoppedRef           = useRef(false);
   const wsRef                = useRef(null);
@@ -192,50 +199,103 @@ export default function SimPage({ simState, onStop, onCancel }) {
     setTimeout(() => setLiveFeedback(null), 5000);
   }
 
+  function addQaEntry({ id, question, isFollowUp = false, parentId = null }) {
+    activeQuestionIdRef.current = id;
+    setActiveQuestionId(id);
+    const entry = { id, question, answer: '', isFollowUp, parentId };
+    qaLogRef.current = [...qaLogRef.current, entry];
+    setQaLog(qaLogRef.current);
+
+    if (!isFollowUp) {
+      interruptLogRef.current.push(question);
+      setInterruptCount(c => c + 1);
+      setInterruptLog([...interruptLogRef.current]);
+    }
+  }
+
+  function appendLocalAnswer(text) {
+    const qid = activeQuestionIdRef.current;
+    const clean = text.trim();
+    if (!qid || !clean) return;
+
+    qaLogRef.current = qaLogRef.current.map(item =>
+      item.id === qid
+        ? { ...item, answer: (item.answer ? `${item.answer} ` : '') + clean }
+        : item
+    );
+    setQaLog([...qaLogRef.current]);
+  }
+
+  function flushPendingAnswerText() {
+    const pending = answerInterimTextRef.current.trim();
+    if (!pending) return;
+
+    appendLocalAnswer(pending);
+
+    if (!isDemoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'partial_transcript',
+        text: pending,
+        is_final: true,
+        timestamp_ms: Date.now(),
+        is_answer: true,
+      }));
+    }
+
+    setAnswerInterimText('');
+    answerInterimTextRef.current = '';
+  }
+
   // ── 텍스트 처리
   function processNewText(text) {
     if (isTtsPlayingRef.current) return; // TTS 재생 중 차단
-    transcriptRef.current += text;
 
     const isAnswering = answerMicActiveRef.current;
 
-    // 발표(presenting) 중에는 Deepgram(audio_chunk)이 WPM/필러 분석을 전담한다.
-    // Web Speech final까지 같이 보내면 백엔드 on_final_transcript가 이중 집계되어
-    // WPM이 튀는 문제가 있었음 — 답변(ANSWERING) 중에만 전송.
-    if (isAnswering && !isDemoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'partial_transcript',
-        text,
-        is_final: true,
-        timestamp_ms: Date.now(),
-        is_answer: isAnswering, // 답변 모드 여부 전달
-      }));
+    // 답변 중: Web Speech → 백엔드 답변만. 발표 대본/WPM 집계에는 넣지 않는다.
+    if (isAnswering) {
+      appendLocalAnswer(text);
+      if (!isDemoRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'partial_transcript',
+          text,
+          is_final: true,
+          timestamp_ms: Date.now(),
+          is_answer: true,
+        }));
+      }
+      lastSpeechAtRef.current = Date.now();
+      return;
     }
+
+    // 발표 중 Web Speech final:
+    // - 실시간 대본 UI에 계속 누적 (초기화하지 않음)
+    // - 로컬 WPM/필러 집계
+    // scripts 저장은 Deepgram(audio_chunk)이 전담 (여기는 UI만)
+    transcriptRef.current += text;
 
     const now = Date.now();
     lastSpeechAtRef.current = now;
     silenceFeedbackFiredRef.current = false;
 
-    const words = text.trim().split(/\s+/);
+    const words = text.trim().split(/\s+/).filter(Boolean);
     wordCountRef.current += words.length;
     liveWordCountRef.current = wordCountRef.current;
 
     let segmentFillerCount = 0;
-    words.forEach(w => {
+    const parsed = words.map(w => {
       const clean = w.replace(/[^가-힣a-z]/gi, '');
       if (FILLERS.includes(clean)) {
         fillerCountRef.current++;
         segmentFillerCount++;
       }
+      return { text: w, isFiller: FILLERS.includes(clean) };
     });
 
-    if (isDemoRef.current) {
-      const allWords = transcriptRef.current.split(/\s+/).slice(-60);
-      const parsed = allWords.map(w => {
-        const clean = w.replace(/[^가-힣a-z]/gi, '');
-        return { text: w, isFiller: FILLERS.includes(clean) };
-      });
-      setTranscriptWords(parsed);
+    // 발표/질문대기 중이면 옆 패널에 확정 자막을 계속 쌓는다
+    const phase = sessionPhaseRef.current;
+    if (parsed.length && (phase === 'presenting' || phase === 'waiting_question' || isDemoRef.current)) {
+      setTranscriptWords(prev => [...prev, ...parsed]);
     }
     setFillerCount(fillerCountRef.current);
 
@@ -290,6 +350,12 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const stopSimRef = useRef(null);
   stopSimRef.current = function stopSim(withApplause = false) {
     if (stoppedRef.current) return;
+
+    // 종료 직전 확정 안 된 답변이 있으면 먼저 백엔드/로컬에 반영
+    if (answerMicActiveRef.current || answerInterimTextRef.current.trim()) {
+      flushPendingAnswerText();
+    }
+
     stoppedRef.current = true;
 
     interruptPendingRef.current  = false;
@@ -314,6 +380,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
       fillerCount:  fillerCountRef.current,
       wpmHistory:   wpmHistoryRef.current,
       interruptLog: interruptLogRef.current,
+      qaLog:        qaLogRef.current,
     };
 
     if (withApplause) {
@@ -385,9 +452,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
 
         setTimeout(() => {
           if (stoppedRef.current) return;
-          interruptLogRef.current.push(question);
-          setInterruptCount(c => c + 1);
-          setInterruptLog([...interruptLogRef.current]);
+          addQaEntry({
+            id: `demo_q_${qaLogRef.current.length + 1}`,
+            question,
+          });
           setBubbleText(question);
           setBubbleVisible(true);
 
@@ -431,8 +499,8 @@ export default function SimPage({ simState, onStop, onCancel }) {
           switch (msg.type) {
 
             case 'final_transcript':
-              // 백엔드 확정 자막 — 자막 표시는 Web Speech final이 담당
-              // WPM은 프론트에서 직접 계산, 필러는 live_metrics로 수신
+              // Deepgram 확정 — scripts 저장용. 실시간 UI 누적은 Web Speech final이 담당
+              // (둘 다 쌓으면 대본이 중복됨)
               break;
 
             case 'live_metrics':
@@ -452,14 +520,16 @@ export default function SimPage({ simState, onStop, onCancel }) {
 
             case 'interrupt_question':
               currentQuestionIdRef.current = msg.question_id;
-              if (!msg.is_follow_up) {
-                interruptLogRef.current.push(msg.question_text);
-                setInterruptCount(c => c + 1);
-                setInterruptLog([...interruptLogRef.current]);
-              }
+              addQaEntry({
+                id: msg.question_id,
+                question: msg.question_text,
+                isFollowUp: !!msg.is_follow_up,
+                parentId: msg.parent_question_id ?? null,
+              });
               setBubbleText(msg.question_text);
               setBubbleVisible(true);
-              isTtsPlayingRef.current = true;
+              // 질문이 떠도 TTS는 '질문 받기' 이후에 재생되므로 여기서 STT를 막지 않는다.
+              // (질문 받기 누르기 전까지 발표 STT가 대본에 계속 들어가야 함)
               setSessionPhase('waiting_question'); // 질문 받기 버튼 표시
               applyQuestionRef.current();
               break;
@@ -515,6 +585,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
               setSessionPhase('presenting');
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
+              setAnswerInterimText('');
+              answerInterimTextRef.current = '';
+              setActiveQuestionId(null);
+              activeQuestionIdRef.current = null;
               clearQuestionRef.current();
               break;
 
@@ -522,6 +596,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
               isTtsPlayingRef.current = false;
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
+              setAnswerInterimText('');
+              answerInterimTextRef.current = '';
+              setActiveQuestionId(null);
+              activeQuestionIdRef.current = null;
               setBubbleResolved(true);
               setSessionPhase('presenting');
               setTimeout(() => {
@@ -537,6 +615,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
               isTtsPlayingRef.current = false;
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
+              setAnswerInterimText('');
+              answerInterimTextRef.current = '';
+              setActiveQuestionId(null);
+              activeQuestionIdRef.current = null;
               setBubbleVisible(false);
               setBubbleText('');
               setSessionPhase('presenting');
@@ -561,6 +643,11 @@ export default function SimPage({ simState, onStop, onCancel }) {
               if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
               if (stoppedRef.current) return;
               if (isTtsPlayingRef.current) return;
+              // 질문 받기 누르기 전까지만 발표 STT.
+              // presenting / waiting_question → Deepgram → 발표 대본
+              // questioning 이후(TTS·답변) → 전송 안 함
+              const phase = sessionPhaseRef.current;
+              if (phase !== 'presenting' && phase !== 'waiting_question') return;
               const buf = await e.data.arrayBuffer();
               const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
               wsRef.current.send(JSON.stringify({ type: 'audio_chunk', timestamp_ms: Date.now(), audio_base64: b64 }));
@@ -638,11 +725,22 @@ export default function SimPage({ simState, onStop, onCancel }) {
           else interim += e.results[i][0].transcript;
         }
         if (final) {
-          // Web Speech final → 밝은색 확정 자막 + 백엔드 전송
+          if (answerMicActiveRef.current) {
+            setAnswerInterimText('');
+            answerInterimTextRef.current = '';
+            processNewText(final);
+            return;
+          }
           setInterimText('');
           processNewText(final);
         } else if (interim) {
-          // interim → 어두운색 임시 자막 표시 (WPM은 timerIntervalRef의 1초 틱에서 계산)
+          if (answerMicActiveRef.current) {
+            answerInterimTextRef.current = interim;
+            setAnswerInterimText(interim);
+            lastSpeechAtRef.current = Date.now();
+            return;
+          }
+
           setInterimText(interim);
 
           // 발화가 들어왔으므로 침묵 감지 타이머 초기화
@@ -687,6 +785,11 @@ export default function SimPage({ simState, onStop, onCancel }) {
     if (transcriptBoxRef.current)
       transcriptBoxRef.current.scrollTop = transcriptBoxRef.current.scrollHeight;
   }, [transcriptWords]);
+
+  useEffect(() => {
+    if (qaLogBoxRef.current)
+      qaLogBoxRef.current.scrollTop = qaLogBoxRef.current.scrollHeight;
+  }, [qaLog, answerInterimText]);
 
   useEffect(() => {
     if (interruptLogBoxRef.current)
@@ -748,6 +851,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
               if (wsRef.current?.readyState === WebSocket.OPEN)
                 wsRef.current.send(JSON.stringify({ type: 'answer_started', question_id: currentQuestionIdRef.current }));
               setSessionPhase('answering');
+              answerMicActiveRef.current = true;
               setAnswerMicActive(true);
             }}>🎙 답변하기</button>
           </div>
@@ -758,10 +862,17 @@ export default function SimPage({ simState, onStop, onCancel }) {
             <div className="phase-overlay__title">답변 중</div>
             <div className="phase-overlay__sub" style={{ marginBottom: 12 }}>마이크에 대고 답변하세요</div>
             <button className="phase-action-btn phase-action-btn--blue" onClick={() => {
+              // 아직 final이 안 된 마지막 답변 조각을 먼저 확정·전송
+              flushPendingAnswerText();
               if (wsRef.current?.readyState === WebSocket.OPEN)
-                wsRef.current.send(JSON.stringify({ type: 'answer_finished', question_id: currentQuestionIdRef.current }));
+                wsRef.current.send(JSON.stringify({
+                  type: 'answer_finished',
+                  question_id: currentQuestionIdRef.current,
+                  pending_answer_text: '',
+                }));
               setSessionPhase('evaluating');
               setAnswerMicActive(false);
+              answerMicActiveRef.current = false;
             }}>✅ 답변 완료</button>
           </div>
         )}
@@ -898,18 +1009,50 @@ export default function SimPage({ simState, onStop, onCancel }) {
           </div>
         </div>
 
-        {interruptLog.length > 0 && (
-          <div className="hud-section">
-            <div className="hud__title">질문 기록</div>
-            <div className="interrupt-log" ref={interruptLogBoxRef}>
-              {interruptLog.map((q, i) => (
-                <div key={i} className="log-item">
-                  <span style={{ fontWeight: 600, color: 'var(--red)' }}>Q{i + 1} </span>{q}
-                </div>
-              ))}
-            </div>
+        <div className="hud-section">
+          <div className="hud__title">질문 · 답변</div>
+          <div className="qa-live" ref={qaLogBoxRef}>
+            {qaLog.length === 0 ? (
+              <span className="qa-live__empty">아직 질문이 없습니다</span>
+            ) : (
+              qaLog.map((item, i) => {
+                const qNum = qaLog.slice(0, i + 1).filter(q => !q.isFollowUp).length;
+                const isActive = activeQuestionId === item.id;
+                const showInterim = isActive && answerInterimText;
+                const showAnswer = item.answer || showInterim;
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`qa-live__item${item.isFollowUp ? ' qa-live__item--follow' : ''}${isActive ? ' qa-live__item--active' : ''}`}
+                  >
+                    <div className="qa-live__question">
+                      <span className="qa-live__label">
+                        {item.isFollowUp ? '↳ Q' : `Q${qNum}`}
+                      </span>
+                      <span>{item.question}</span>
+                    </div>
+                    {showAnswer ? (
+                      <div className="qa-live__answer">
+                        <span className="qa-live__label qa-live__label--answer">A</span>
+                        <span>
+                          {item.answer}
+                          {showInterim && (
+                            <span className="qa-live__interim">
+                              {item.answer ? ' ' : ''}{answerInterimText}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    ) : isActive && sessionPhase === 'answering' ? (
+                      <div className="qa-live__answer qa-live__answer--pending">답변 중...</div>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
           </div>
-        )}
+        </div>
 
         <div className="hud-section">
           <button className="btn-stop" onClick={() => stopSimRef.current()}>발표 종료</button>

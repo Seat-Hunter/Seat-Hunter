@@ -6,6 +6,41 @@ const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 const LOGO = <span style={{ fontSize: 14 }}>🙋</span>;
 
+function buildReportAnswers(apiAnswers, qaLog) {
+  const map = new Map();
+
+  (apiAnswers || []).forEach(a => {
+    if (a.question_id) map.set(a.question_id, { ...a });
+  });
+
+  (qaLog || []).forEach(q => {
+    if (!q?.id) return;
+    const existing = map.get(q.id);
+    const answerText = (existing?.answer_text || q.answer || '').trim();
+    map.set(q.id, {
+      question_id: q.id,
+      parent_question_id: q.parentId ?? q.id,
+      question_text: q.question || existing?.question_text || '',
+      answer_text: answerText,
+      answer_score: existing?.answer_score ?? null,
+      is_follow_up: !!q.isFollowUp,
+      follow_up_count: existing?.follow_up_count ?? 0,
+    });
+  });
+
+  return Array.from(map.values());
+}
+
+function groupAnswersByParent(answers) {
+  const parentMap = {};
+  answers.forEach(a => {
+    const pid = a.parent_question_id ?? a.question_id;
+    if (!parentMap[pid]) parentMap[pid] = [];
+    parentMap[pid].push(a);
+  });
+  return parentMap;
+}
+
 function ScriptToggle({ sessionId }) {
   const [open,    setOpen]    = useState(false);
   const [script,  setScript]  = useState(null);
@@ -69,7 +104,7 @@ function scoreColor(score) {
 }
 
 export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
-  const { type, difficulty, elapsed, fillerCount, wpmHistory, interruptLog, sessionId } = simState;
+  const { type, difficulty, elapsed, fillerCount, wpmHistory, interruptLog, qaLog, sessionId } = simState;
 
   const [reportData, setReportData]       = useState(null);
   const [backendReport, setBackendReport] = useState(null);
@@ -121,11 +156,15 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
   }, []);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      setAnswers(buildReportAnswers([], qaLog));
+      return;
+    }
     fetch(`${API}/api/v1/sessions/${sessionId}/answers`)
       .then(r => r.ok ? r.json() : [])
-      .then(arr => setAnswers(Array.isArray(arr) ? arr : []))
-      .catch(() => setAnswers([]));
+      .then(arr => setAnswers(buildReportAnswers(Array.isArray(arr) ? arr : [], qaLog)))
+      .catch(() => setAnswers(buildReportAnswers([], qaLog)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   const displayAvgWpm     = backendReport?.avg_wpm         ?? avgWpm;
@@ -262,13 +301,7 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
           <div className="feedback-section__title">돌발 질문 & 답변 기록</div>
           <div className="qa-list">
             {answers.length > 0 ? (() => {
-              // parent_question_id 기준으로 그룹핑
-              const parentMap = {};
-              answers.forEach(a => {
-                const pid = a.parent_question_id ?? a.question_id;
-                if (!parentMap[pid]) parentMap[pid] = [];
-                parentMap[pid].push(a);
-              });
+              const parentMap = groupAnswersByParent(answers);
               let qNum = 0;
               return Object.entries(parentMap).map(([pid, group]) => {
                 qNum++;
@@ -276,7 +309,7 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
                   <div key={pid} style={{ marginBottom: 16 }}>
                     {group.map((a, subIdx) => {
                       const label = subIdx === 0 ? `Q${qNum}` : `Q${qNum}-${subIdx}`;
-                      const isFollowUp = subIdx > 0;
+                      const isFollowUp = subIdx > 0 || a.is_follow_up;
                       return (
                         <div key={a.question_id ?? subIdx} className="qa-item" style={{
                           borderLeft: isFollowUp ? '3px solid var(--amber)' : '3px solid var(--red)',
@@ -292,10 +325,14 @@ export default function ReportPage({ simState, onRestart, onHome, onHistory }) {
                             )}
                           </div>
                           <div style={{ marginBottom: 6 }}>{a.question_text}</div>
-                          {a.answer_text && (
+                          {a.answer_text ? (
                             <div style={{ background: 'white', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: 'var(--ink2)', lineHeight: 1.6 }}>
                               <span style={{ fontWeight: 600, color: 'var(--blue)', marginRight: 6 }}>답변</span>
                               {a.answer_text}
+                            </div>
+                          ) : (
+                            <div style={{ background: 'white', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: 'var(--ink3)', lineHeight: 1.6 }}>
+                              답변 없음
                             </div>
                           )}
                         </div>
