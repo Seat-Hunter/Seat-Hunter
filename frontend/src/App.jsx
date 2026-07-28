@@ -77,7 +77,7 @@ export default function App() {
     setLoading(true);
     setStartError(null);
     try {
-      const session = await createSession(config);
+      const session = await createSession(config, token);
       setSimState({ ...INITIAL_SIM, ...config, sessionId: session.session_id });
       go('sim');
     } catch (e) {

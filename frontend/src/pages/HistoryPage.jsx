@@ -73,24 +73,28 @@ function ScoreChart({ sessions }) {
 }
 
 export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token, onLogin }) {
-  const [sessions,      setSessions]      = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [filterType,    setFilterType]    = useState('all');
-  const [filterAud,     setFilterAud]     = useState('all');
-  const [sortBy,        setSortBy]        = useState('date');
+  const [sessions,         setSessions]         = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [deleteConfirm,    setDeleteConfirm]    = useState(null);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
+  const [filterType,       setFilterType]       = useState('all');
+  const [filterAud,        setFilterAud]        = useState('all');
+  const [sortBy,           setSortBy]           = useState('date');
 
   useEffect(() => {
       if (!token) {
         setLoading(false);
         return;
       }
-    fetch(`${API}/api/v1/users/1/sessions`)
+    setLoading(true);
+    fetch(`${API}/api/v1/users/me/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then(r => r.json())
       .then(data => setSessions(Array.isArray(data) ? data : []))
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   async function handleDelete(sessionId) {
     try {
@@ -100,6 +104,20 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
       console.error('삭제 실패', e);
     } finally {
       setDeleteConfirm(null);
+    }
+  }
+
+  async function handleDeleteAll() {
+    try {
+      await fetch(`${API}/api/v1/users/me/sessions`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSessions([]);
+    } catch (e) {
+      console.error('전체 삭제 실패', e);
+    } finally {
+      setDeleteAllConfirm(false);
     }
   }
 
@@ -143,6 +161,9 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
             <h1 className="history-h">발표 히스토리</h1>
             <div className="history-sub">총 {total}회 세션 · 항목을 클릭하면 상세 리포트를 볼 수 있습니다</div>
           </div>
+          {total > 0 && (
+            <button className="btn-line" onClick={() => setDeleteAllConfirm(true)}>전체 삭제</button>
+          )}
         </div>
 
         {total > 0 && (
@@ -263,6 +284,35 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
                 border: 'none', background: 'var(--red)', color: 'white',
                 cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 700,
               }}>삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteAllConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 12, padding: '28px 32px',
+            width: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>정말 히스토리 전체를 삭제하시겠습니까?</div>
+            <div style={{ fontSize: 13, color: 'var(--ink2)', marginBottom: 24, lineHeight: 1.6 }}>
+              삭제된 세션은 복구할 수 없습니다.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setDeleteAllConfirm(false)} style={{
+                flex: 1, padding: '10px', borderRadius: 7, fontSize: 13,
+                border: '1px solid var(--border2)', background: 'white',
+                cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 500,
+              }}>취소</button>
+              <button onClick={handleDeleteAll} style={{
+                flex: 1, padding: '10px', borderRadius: 7, fontSize: 13,
+                border: 'none', background: 'var(--red)', color: 'white',
+                cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 700,
+              }}>확인</button>
             </div>
           </div>
         </div>
