@@ -25,7 +25,6 @@ export async function createSession(config, token) {
       pressure_level:    mapDifficulty(config.difficulty),
       duration_seconds:  config.duration * 60,
       interrupt_enabled: config.interrupt,
-      title:             config.topic || null,
       script_text:       config.script || null,
     }),
   });
