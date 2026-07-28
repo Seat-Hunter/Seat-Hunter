@@ -86,6 +86,7 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
       : 0
   );
   const [difficulty, setDifficulty] = useState(preset?.difficulty ?? null);
+  const [topic, setTopic] = useState(preset?.topic ?? '');
   const [duration, setDuration] = useState('');
   const [interrupt, setInterrupt] = useState(
     preset?.interrupt !== undefined ? (preset.interrupt ? 'on' : 'off') : null
@@ -160,6 +161,7 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
       audience,
       audienceCount: cfg.fixedCount ? cfg.maxCount : audienceCount,
       difficulty,
+      topic: topic.trim() || null,
       duration: Number(duration),
       interrupt: interrupt === 'on',
     });
@@ -201,6 +203,18 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
             value={type}
             onChange={handleTypeChange}
             error={typeError}
+          />
+        </div>
+
+        <div className="setup-section" id="field-topic">
+          <span className="ss-label">발표 주제 (선택)</span>
+          <input
+            type="text"
+            className="setup-input"
+            value={topic}
+            maxLength={100}
+            placeholder="예: 신제품 출시 전략 발표"
+            onChange={e => setTopic(e.target.value)}
           />
         </div>
 

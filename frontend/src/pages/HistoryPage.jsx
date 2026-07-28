@@ -247,7 +247,7 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
                 <div className="hi" key={s.session_id ?? s.id} onClick={() => onDetail?.(s.session_id ?? s.id)}>
                   <div className="hi-num">#{filtered.length - i}</div>
                   <div className="hi-info">
-                    <div className="hi-title">{type} · {aud} · {diff}</div>
+                    <div className="hi-title">{s.title || `${type} · ${aud} · ${diff}`}</div>
                     <div className="hi-meta">{date} · {dur} · {s.interrupt_enabled ? '돌발 질문' : '질문 없음'}</div>
                   </div>
                   <div className={`hi-score ${scoreClass(score)}`}>{score}</div>
