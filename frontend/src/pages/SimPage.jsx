@@ -71,7 +71,6 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const memberCount = Math.min(audienceCount, 20);
 
   const PRESENTATION_CONFIG = {
-    interview: { roomType: 'interview',   audienceType: 'boss',      memberCount: 4  },
     academic:  { roomType: 'audiovisual', audienceType: 'professor', memberCount: 20 },
     school:    { roomType: 'classroom',   audienceType: 'professor', memberCount: 18 },
     meeting:   { roomType: 'meeting',     audienceType: 'boss',      memberCount: 5  },
@@ -80,7 +79,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const config       = PRESENTATION_CONFIG[type] ?? DEFAULT_CONFIG;
   const roomType     = config.roomType;
   const audienceType = audience || config.audienceType;
-  const finalMemberCount = ['interview', 'meeting'].includes(roomType)
+  const finalMemberCount = roomType === 'meeting'
     ? config.memberCount
     : Math.min(audienceCount ?? config.memberCount, config.memberCount);
 

@@ -7,15 +7,6 @@ const LOGO = <span style={{ fontSize: 14 }}>🙋</span>;
 
 const ENVS = [
   {
-    type: 'interview',
-    img: '/images/env_interview.jpg',
-    emoji: '🏛️',
-    name: '심사위원실 · 면접',
-    desc: '교수·투자자·면접관이 정면에서 날카롭게 평가. 즉각적인 질문과 높은 압박이 특징.',
-    tags: ['고강도', '2–6명', '즉각 질문'], hi: '고강도',
-    preset: { type: 'interview', audience: 'boss', difficulty: 'hard', interrupt: true },
-  },
-  {
     type: 'academic',
     img: '/images/env_audiovisual.jpg',
     emoji: '🎭',
