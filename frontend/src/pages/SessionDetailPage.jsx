@@ -4,7 +4,7 @@ import './SessionDetailPage.css';
 const LOGO = <span style={{ fontSize: 14 }}>🙋</span>;
 const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
-const TYPE_LABEL = { interview: '면접', academic: '학술발표', school: '학교발표', meeting: '회의' };
+const TYPE_LABEL = { academic: '학술발표', school: '학교발표', meeting: '회의' };
 const DIFF_LABEL = { low: '약함', medium: '보통', high: '강함', brutal: '극한' };
 const AUD_LABEL  = { professor: '교수', investor: '투자자', boss: '상사', general: '일반 청중' };
 

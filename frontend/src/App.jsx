@@ -9,7 +9,7 @@ import SessionDetailPage from './pages/SessionDetailPage';
 import { createSession } from './services/claudeApi';
 
 const INITIAL_SIM = {
-  type: 'interview', audience: 'boss', audienceCount: 4,
+  type: 'academic', audience: 'professor', audienceCount: 4,
   difficulty: 'medium', duration: 3, interrupt: true, script: '',
   elapsed: 0, transcript: '', wordCount: 0, fillerCount: 0,
   wpmHistory: [], interruptLog: [], sessionId: null,
