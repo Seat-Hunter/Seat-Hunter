@@ -2,16 +2,15 @@
 
 > AI 청중과 함께 실제 발표 상황을 연습하고, 말하기 데이터를 바탕으로 피드백을 받는 발표 시뮬레이션 서비스입니다.
 
-SEAT-HUNTER는 발표 전 긴장을 줄이고 실전 대응력을 높이기 위한 웹 애플리케이션입니다. 사용자는 발표 환경과 청중 유형, 난이도, 시간을 설정한 뒤 가상 청중 앞에서 발표를 진행합니다. 발표 중에는 음성 인식 기반의 실시간 지표와 AI 청중의 질문·반응을 확인할 수 있으며, 종료 후에는 세션 리포트와 연습 이력을 통해 개선점을 살펴볼 수 있습니다.
+SEAT-HUNTER는 발표 전 긴장을 줄이고 실전 대응력을 높이기 위한 웹 애플리케이션입니다. 사용자는 발표 환경과 청중 유형, 난이도, 시간을 설정한 뒤 가상 청중 앞에서 발표를 진행합니다. 발표 중에는 음성 인식 기반의 실시간 지표와 AI 청중의 질문·반응을 확인할 수 있으며, 종료 후에는 세션 리포트와 연습 이력을 통해 개선점을 살펴볼 수 있습니다.<br><br>
+<img width="3000" height="1680" alt="page-0001" src="https://github.com/user-attachments/assets/49aefb92-50af-4ff7-8fda-b8ba27bd02e8" />
+<img width="3000" height="1680" alt="page-0002" src="https://github.com/user-attachments/assets/87d1da7f-28aa-4e9a-9e82-3267022c2e80" />
+<img width="3000" height="1680" alt="page-0003" src="https://github.com/user-attachments/assets/1d43595a-f22f-4453-b739-dcbe765d6f0f" />
+<img width="3000" height="1680" alt="page-0004" src="https://github.com/user-attachments/assets/fae2ba70-8c67-4e8a-86d1-3b19360c966d" />
+<img width="3000" height="1680" alt="page-0005" src="https://github.com/user-attachments/assets/d1e68a51-81ea-46e3-b2e6-557c53e93655" />
+<img width="3000" height="1680" alt="page-0006" src="https://github.com/user-attachments/assets/584be534-2af6-4f91-b786-b584ae9c56b7" />
+<img width="3000" height="1680" alt="page-0008" src="https://github.com/user-attachments/assets/913aa876-8c00-4577-8414-9c7f7c852f3e" />
 
-<p align="center">
-  <img src="frontend/public/images/env_audiovisual.jpg" alt="학술 발표 환경" width="49%" />
-  <img src="frontend/public/images/env_classroom.jpg" alt="학교 발표 환경" width="49%" />
-</p>
-<p align="center">
-  <img src="frontend/public/images/env_meeting.jpg" alt="비즈니스 회의 환경" width="49%" />
-  <img src="frontend/public/images/env_interview.jpg" alt="인터뷰 환경" width="49%" />
-</p>
 
 ## 주요 기능
 
