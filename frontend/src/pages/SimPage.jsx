@@ -141,6 +141,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
   const isTtsPlayingRef      = useRef(false);
   const currentQuestionIdRef = useRef(null);
   const answerMicActiveRef   = useRef(false);
+  const micPausedForTtsRef   = useRef(false); // 질문 TTS 재생 중 STT 완전 정지 여부 (답변 스크립트 오염 방지)
   const countdownTimerRef    = useRef(null);
   const mediaRecorderRef     = useRef(null);
   const micStreamRef         = useRef(null);
@@ -243,6 +244,24 @@ export default function SimPage({ simState, onStop, onCancel }) {
 
     setAnswerInterimText('');
     answerInterimTextRef.current = '';
+  }
+
+  // ── 질문 TTS 재생 중 마이크 완전 정지 (스피커→마이크 잔향이 지연 인식되어
+  //    발표/답변 스크립트로 새는 것을 원천 차단)
+  function pauseMicForTts() {
+    micPausedForTtsRef.current = true;
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch { /* 이미 정지 상태 */ }
+    }
+  }
+
+  // ── 답변하기 클릭 시(또는 질문이 스킵/취소/해결되어 발표로 복귀할 때) 마이크 재개
+  function resumeMicIfPaused() {
+    if (!micPausedForTtsRef.current) return;
+    micPausedForTtsRef.current = false;
+    if (recognitionRef.current && !isDemoRef.current) {
+      try { recognitionRef.current.start(); } catch { /* 이미 실행 중 */ }
+    }
   }
 
   // ── 텍스트 처리
@@ -538,6 +557,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
               if (msg.question_text) setBubbleText(msg.question_text);
               if (msg.question_id) currentQuestionIdRef.current = msg.question_id;
               isTtsPlayingRef.current = true;
+              pauseMicForTts(); // TTS 소리가 마이크로 새 들어가 지연 인식되는 것을 방지
               setSessionPhase('questioning'); // TTS 재생 중
               const audio = new Audio(`data:audio/${msg.format ?? 'mp3'};base64,${msg.audio_base64}`);
               audioRef.current = audio;
@@ -580,6 +600,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
             case 'stop_tts':
               if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
               isTtsPlayingRef.current = false;
+              resumeMicIfPaused();
               setBubbleVisible(false);
               setSessionPhase('presenting');
               setAnswerMicActive(false);
@@ -593,6 +614,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
 
             case 'question_resolved':
               isTtsPlayingRef.current = false;
+              resumeMicIfPaused();
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
               setAnswerInterimText('');
@@ -612,6 +634,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
             case 'question_skipped':
               if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
               isTtsPlayingRef.current = false;
+              resumeMicIfPaused();
               setAnswerMicActive(false);
               answerMicActiveRef.current = false;
               setAnswerInterimText('');
@@ -760,7 +783,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
         }
       };
       r.onerror = () => { if (!demoMode) console.warn('[STT] 마이크 오류'); };
-      r.onend   = () => { if (!stoppedRef.current && !demoMode) r.start(); };
+      r.onend   = () => { if (!stoppedRef.current && !demoMode && !micPausedForTtsRef.current) r.start(); };
       if (demoMode) {
         r.abort?.();
         startDemo();
@@ -847,6 +870,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
             <div className="phase-overlay__title">답변 준비</div>
             <div className="phase-overlay__sub" style={{ marginBottom: 12 }}>마이크를 켜고 답변하세요</div>
             <button className="phase-action-btn phase-action-btn--blue" onClick={() => {
+              resumeMicIfPaused(); // TTS 정지 상태였던 마이크를 답변 시작 시점에 새로 켠다 (잔향 유입 차단)
               if (wsRef.current?.readyState === WebSocket.OPEN)
                 wsRef.current.send(JSON.stringify({ type: 'answer_started', question_id: currentQuestionIdRef.current }));
               setSessionPhase('answering');
