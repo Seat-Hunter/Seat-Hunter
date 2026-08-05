@@ -26,6 +26,7 @@ export async function createSession(config, token) {
       duration_seconds:  config.duration * 60,
       interrupt_enabled: config.interrupt,
       script_text:       config.script || null,
+      title:             config.title || null,
     }),
   });
   if (!res.ok) throw new Error(`세션 생성 실패: ${res.status}`);
