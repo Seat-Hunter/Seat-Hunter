@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './SimPage.css';
-import { startSession, endSession, connectSessionWS } from '../services/claudeApi';
+import { startSession, endSession, cancelSession, connectSessionWS } from '../services/claudeApi';
 import AudienceSimulator from './AudienceSimulator';
 
 // ── 상수 ───────────────────────────────────────────────
@@ -1057,15 +1057,22 @@ export default function SimPage({ simState, onStop, onCancel }) {
           <button className="btn-stop" onClick={() => stopSimRef.current()}>발표 종료</button>
           {onCancel && (
             <button
-              onClick={() => {
-                if (window.confirm('발표를 취소할까요? 기록이 저장되지 않습니다.')) {
-                  stoppedRef.current = true;
-                  clearInterval(timerIntervalRef.current);
-                  if (recognitionRef.current) recognitionRef.current.stop();
-                  if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-                  if (wsRef.current) wsRef.current.close();
-                  onCancel();
+              onClick={async () => {
+                if (!window.confirm('발표를 취소할까요? 기록이 저장되지 않습니다.')) return;
+
+                stoppedRef.current = true;
+                clearInterval(timerIntervalRef.current);
+                if (recognitionRef.current) recognitionRef.current.stop();
+                if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+
+                // 백엔드가 세션을 CANCELLED로 표시하고 저장된 데이터를 지울 때까지 기다린 뒤 WS를 닫는다.
+                // 순서를 바꾸면 WS 끊김 감지가 먼저 발생해 서버가 세션을 자동 종료·저장해버릴 수 있다.
+                if (sessionIdRef.current) {
+                  try { await cancelSession(sessionIdRef.current); }
+                  catch (e) { console.error(e); }
                 }
+                if (wsRef.current) wsRef.current.close();
+                onCancel();
               }}
               style={{
                 width: '100%', marginTop: 8, padding: '9px', borderRadius: 6,

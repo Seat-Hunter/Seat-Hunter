@@ -16,6 +16,8 @@ function scoreClass(s) {
 }
 
 function ScoreChart({ sessions }) {
+  const [hoverIdx, setHoverIdx] = useState(null);
+
   if (sessions.length < 2) return null;
 
   const W = 700, H = 160, PAD = { top: 16, right: 24, bottom: 32, left: 36 };
@@ -58,15 +60,46 @@ function ScoreChart({ sessions }) {
         <path d={linePath} fill="none" stroke="#2563eb" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
         {data.map((d, i) => {
           const skip = data.length > 10 && i % Math.ceil(data.length / 10) !== 0 && i !== data.length - 1;
+          const isHover = hoverIdx === i;
           return (
             <g key={i}>
-              <circle cx={toX(i)} cy={toY(d.y)} r="3.5" fill="white" stroke="#2563eb" strokeWidth="2"/>
+              <circle
+                cx={toX(i)} cy={toY(d.y)}
+                r={isHover ? 5 : 3.5}
+                fill="white" stroke="#2563eb" strokeWidth="2"
+                style={{ transition: 'r 0.1s' }}
+              />
+              {/* 히트 영역 확대용 투명 원 — hover/tooltip 트리거 */}
+              <circle
+                cx={toX(i)} cy={toY(d.y)} r="12" fill="transparent"
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(null)}
+                style={{ cursor: 'pointer' }}
+              />
               {!skip && (
                 <text x={toX(i)} y={H - 4} fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
               )}
             </g>
           );
         })}
+        {hoverIdx !== null && (() => {
+          const d = data[hoverIdx];
+          const px = toX(hoverIdx);
+          const py = toY(d.y);
+          const label = `${d.y}점`;
+          const boxW = 18 + label.length * 7;
+          const boxH = 22;
+          let bx = px - boxW / 2;
+          bx = Math.max(PAD.left, Math.min(bx, W - PAD.right - boxW));
+          const by = Math.max(PAD.top, py - boxH - 10);
+          return (
+            <g style={{ pointerEvents: 'none' }}>
+              <line x1={px} x2={px} y1={py} y2={PAD.top + iH} stroke="#2563eb" strokeWidth="1" strokeDasharray="2,2" opacity="0.4"/>
+              <rect x={bx} y={by} width={boxW} height={boxH} rx="5" fill="white" stroke="#2563eb" strokeWidth="1.5"/>
+              <text x={bx + boxW / 2} y={by + boxH / 2 + 4} fontSize="11" fontWeight="700" fill="#2563eb" textAnchor="middle">{label}</text>
+            </g>
+          );
+        })()}
       </svg>
     </div>
   );
@@ -98,7 +131,11 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
 
   async function handleDelete(sessionId) {
     try {
-      await fetch(`${API}/api/v1/sessions/${sessionId}`, { method: 'DELETE' });
+      const res = await fetch(`${API}/api/v1/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`삭제 실패: ${res.status}`);
       setSessions(prev => prev.filter(s => (s.session_id ?? s.id) !== sessionId));
     } catch (e) {
       console.error('삭제 실패', e);
@@ -151,7 +188,11 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
         </div>
         <div className="nav-right">
           <button className="btn-blue" onClick={onSetup}>새 세션</button>
-          {onLogout && <button className="btn-line" onClick={onLogout}>로그아웃</button>}
+          {token ? (
+            <button className="btn-line" onClick={onLogout}>로그아웃</button>
+          ) : (
+            <button className="btn-line" onClick={onLogin}>로그인</button>
+          )}
         </div>
       </nav>
 
@@ -248,7 +289,7 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
                   <div className="hi-num">#{filtered.length - i}</div>
                   <div className="hi-info">
                     <div className="hi-title">{type} · {aud} · {diff}</div>
-                    <div className="hi-meta">{date} · {dur} · {s.interrupt_enabled ? '돌발 질문' : '질문 없음'}</div>
+                    <div className="hi-meta">{date} · {dur} · {(s.interrupt_count ?? 0) > 0 ? `돌발 질문 ${s.interrupt_count}회` : '질문 없음'}</div>
                   </div>
                   <div className={`hi-score ${scoreClass(score)}`}>{score}</div>
                   <div className={`hi-badge${isBest ? ' best' : ''}`}>{isBest ? '🏆 최고' : '→'}</div>

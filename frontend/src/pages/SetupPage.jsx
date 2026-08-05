@@ -73,7 +73,7 @@ function RangeSlider({ id, min, max, step = 1, value, onChange, disabled = false
   );
 }
 
-export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset }) {
+export default function SetupPage({ onStart, onLogout, onHome, onHistory, onLogin, token, preset }) {
   const [type, setType] = useState(preset?.type ?? null);
   const [audience, setAudience] = useState(preset?.audience ?? null);
   const [audienceCount, setCount] = useState(
@@ -87,6 +87,7 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
   );
   const [difficulty, setDifficulty] = useState(preset?.difficulty ?? null);
   const [duration, setDuration] = useState('');
+  const [title, setTitle] = useState('');
   const [interrupt, setInterrupt] = useState(
     preset?.interrupt !== undefined ? (preset.interrupt ? 'on' : 'off') : null
   );
@@ -162,6 +163,7 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
       difficulty,
       duration: Number(duration),
       interrupt: interrupt === 'on',
+      title: title.trim() || null,
     });
   }
 
@@ -180,7 +182,11 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
 
         <div className="nav-right">
           {onHistory && <button className="btn-line" onClick={onHistory}>히스토리</button>}
-          {onLogout && <button className="btn-line" onClick={onLogout}>로그아웃</button>}
+          {token ? (
+            <button className="btn-line" onClick={onLogout}>로그아웃</button>
+          ) : (
+            <button className="btn-line" onClick={onLogin}>로그인</button>
+          )}
         </div>
       </nav>
 
@@ -192,6 +198,17 @@ export default function SetupPage({ onStart, onLogout, onHome, onHistory, preset
               환경과 조건을 설정하면 맞춤 AI 청중이 생성됩니다
             </span>
           </div>
+        </div>
+
+        <div className="setup-section" id="field-title">
+          <span className="ss-label">발표 제목 / 주제 (선택)</span>
+          <input
+            type="text"
+            className="setup-input"
+            value={title}
+            placeholder="예: 신제품 출시 전략 발표"
+            onChange={e => setTitle(e.target.value)}
+          />
         </div>
 
         <div className="setup-section" id="field-type">

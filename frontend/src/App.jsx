@@ -156,6 +156,8 @@ export default function App() {
           onLogout={handleLogout}
           onHome={() => go('home')}
           onHistory={() => go('history')}
+          token={token}
+          onLogin={() => go('login')}
         />
       )}
       {page === 'sim'     && <SimPage simState={simState} onStop={handleStop} onCancel={() => go('setup', { replace: true })} />}
