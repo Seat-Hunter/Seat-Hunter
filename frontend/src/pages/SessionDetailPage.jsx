@@ -316,6 +316,17 @@ export default function SessionDetailPage({ sessionId, onBack, onHome, onSetup }
                                   답변 점수: {Math.round(a.answer_score)}
                                 </span>
                               )}
+                              {a.answer_category && (
+                                <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink3)', fontWeight: 400 }}>
+                                  주제정합성: {{
+                                    CORRECT: '최상',
+                                    PARTIAL: '상',
+                                    DONT_KNOW: '중',
+                                    OFF_TOPIC: '하',
+                                    NONSENSE: '최하',
+                                  }[a.answer_category] || a.answer_category}
+                                </span>
+                              )}
                             </div>
                             <div className="qa-text" style={{ marginBottom: 6 }}>{a.question_text}</div>
                             {a.answer_text && (
@@ -326,6 +337,15 @@ export default function SessionDetailPage({ sessionId, onBack, onHome, onSetup }
                               }}>
                                 <span style={{ fontWeight: 600, color: 'var(--blue)', marginRight: 6 }}>답변</span>
                                 {a.answer_text}
+                              </div>
+                            )}
+                            {a.topic_feedback && (
+                              <div style={{
+                                marginTop: 6, fontSize: 12,
+                                color: 'var(--ink2)', lineHeight: 1.5,
+                              }}>
+                                <span style={{ fontWeight: 600, color: 'var(--amber)', marginRight: 6 }}>피드백</span>
+                                {a.topic_feedback}
                               </div>
                             )}
                           </div>

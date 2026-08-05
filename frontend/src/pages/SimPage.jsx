@@ -517,6 +517,25 @@ export default function SimPage({ simState, onStop, onCancel }) {
               break;
             }
 
+            case 'answer_evaluated': {
+              const qid = msg.question_id;
+              if (!qid) break;
+              qaLogRef.current = qaLogRef.current.map(item =>
+                item.id === qid
+                  ? {
+                      ...item,
+                      answer: msg.user_answer || item.answer,
+                      answerScore: msg.answer_score ?? item.answerScore ?? null,
+                      answerCategory: msg.answer_category ?? item.answerCategory ?? null,
+                      topicAlignment: msg.topic_alignment ?? item.topicAlignment ?? null,
+                      topicFeedback: msg.topic_feedback ?? item.topicFeedback ?? null,
+                    }
+                  : item
+              );
+              setQaLog([...qaLogRef.current]);
+              break;
+            }
+
             case 'interrupt_question':
               currentQuestionIdRef.current = msg.question_id;
               addQaEntry({
@@ -642,9 +661,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
               if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
               if (stoppedRef.current) return;
               if (isTtsPlayingRef.current) return;
-              // 질문 받기 누르기 전까지만 발표 STT.
-              // presenting / waiting_question → Deepgram → 발표 대본
-              // questioning 이후(TTS·답변) → 전송 안 함
+              // 발표 중(Deepgram)만 audio_chunk 전송.
+              // 답변 중은 Web Speech만 사용 — Deepgram으로 보내지 않는다.
+              // (연결이 끊기면 백엔드가 발표 재개 시 재연결한다)
               const phase = sessionPhaseRef.current;
               if (phase !== 'presenting' && phase !== 'waiting_question') return;
               const buf = await e.data.arrayBuffer();
