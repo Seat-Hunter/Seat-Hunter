@@ -7,6 +7,16 @@ import AudienceSimulator from './AudienceSimulator';
 const FILLERS = ['어', '음', '그', '저', '뭐', '그냥', '좀', '아', '에', '이'];
 const INTERRUPT_INTERVALS = { easy: 90, medium: 50, hard: 30, brutal: 18 };
 
+// Deepgram final_transcript 화면 표시용 — WPM/필러 카운트(ref)는 건드리지 않고
+// 필러 하이라이트만 위해 단어를 쪼갠다. 실제 필러 카운트/WPM 집계는 여전히
+// Web Speech 쪽(processNewText)이 담당한다.
+function parseWordsForDisplay(text) {
+  return text.trim().split(/\s+/).filter(Boolean).map(w => {
+    const clean = w.replace(/[^가-힣a-z]/gi, '');
+    return { text: w, isFiller: FILLERS.includes(clean) };
+  });
+}
+
 const DEMO_TEXTS = [
   '안녕하세요, 저는 오늘 저희 서비스에 대해 발표하겠습니다.',
   '저희 서비스는 AI 기반 스피치 코칭 플랫폼으로서,',
@@ -310,9 +320,10 @@ export default function SimPage({ simState, onStop, onCancel }) {
       return { text: w, isFiller: FILLERS.includes(clean) };
     });
 
-    // 발표/질문대기 중이면 옆 패널에 확정 자막을 계속 쌓는다
-    const phase = sessionPhaseRef.current;
-    if (parsed.length && (phase === 'presenting' || phase === 'waiting_question' || isDemoRef.current)) {
+    // 실제 세션(데모 아님)에서는 화면 대본을 Deepgram의 final_transcript가 담당하므로
+    // 여기서는 안 쌓는다 (WPM/필러 ref 집계는 위에서 이미 끝남 — 그건 계속 Web Speech 기준).
+    // 데모 모드는 백엔드/Deepgram이 없으니 Web Speech 결과를 그대로 쌓는다 (원래 동작 유지).
+    if (isDemoRef.current && parsed.length) {
       setTranscriptWords(prev => [...prev, ...parsed]);
     }
     setFillerCount(fillerCountRef.current);
@@ -516,10 +527,24 @@ export default function SimPage({ simState, onStop, onCancel }) {
           if (stoppedRef.current) return;
           switch (msg.type) {
 
-            case 'final_transcript':
-              // Deepgram 확정 — scripts 저장용. 실시간 UI 누적은 Web Speech final이 담당
-              // (둘 다 쌓으면 대본이 중복됨)
+            case 'final_transcript': {
+              // Deepgram 확정 결과를 화면 대본에 반영한다 (Web Speech 대신 이걸 표시).
+              const phase = sessionPhaseRef.current;
+              if (msg.text && (phase === 'presenting' || phase === 'waiting_question')) {
+                setTranscriptWords(prev => [...prev, ...parseWordsForDisplay(msg.text)]);
+              }
+              setInterimText('');
               break;
+            }
+
+            case 'stt_partial_transcript': {
+              // Deepgram 중간 결과 — 화면에 회색으로 표시만 하고 확정 목록에는 안 쌓는다.
+              const phase = sessionPhaseRef.current;
+              if (phase === 'presenting' || phase === 'waiting_question') {
+                setInterimText(msg.text ?? '');
+              }
+              break;
+            }
 
             case 'live_metrics':
               setFillerCount(msg.filler_count ?? 0);
@@ -772,7 +797,9 @@ export default function SimPage({ simState, onStop, onCancel }) {
             processNewText(final);
             return;
           }
-          setInterimText('');
+          // 실제 세션에서는 화면 표시가 Deepgram(stt_partial_transcript/final_transcript)
+          // 담당이라 여기서 안 건드린다. 데모 모드만 Web Speech 결과를 직접 표시한다.
+          if (isDemoRef.current) setInterimText('');
           processNewText(final);
         } else if (interim) {
           if (answerMicActiveRef.current) {
@@ -782,7 +809,7 @@ export default function SimPage({ simState, onStop, onCancel }) {
             return;
           }
 
-          setInterimText(interim);
+          if (isDemoRef.current) setInterimText(interim);
 
           // 발화가 들어왔으므로 침묵 감지 타이머 초기화
           lastSpeechAtRef.current = Date.now();
