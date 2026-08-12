@@ -5,7 +5,7 @@ const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 const LOGO = <span style={{ fontSize: 14 }}>🙋</span>;
 
-const TYPE_LABEL = { interview: '면접', academic: '학술발표', school: '학교발표', meeting: '회의' };
+const TYPE_LABEL = { academic: '학술발표', school: '학교발표', meeting: '회의' };
 const DIFF_LABEL = { low: '약함', medium: '보통', high: '강함', brutal: '극한' };
 const AUD_LABEL  = { professor: '교수', investor: '투자자', boss: '상사', general: '일반 청중' };
 
@@ -16,6 +16,8 @@ function scoreClass(s) {
 }
 
 function ScoreChart({ sessions }) {
+  const [hoverIdx, setHoverIdx] = useState(null);
+
   if (sessions.length < 2) return null;
 
   const W = 700, H = 160, PAD = { top: 16, right: 24, bottom: 32, left: 36 };
@@ -58,48 +60,101 @@ function ScoreChart({ sessions }) {
         <path d={linePath} fill="none" stroke="#2563eb" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
         {data.map((d, i) => {
           const skip = data.length > 10 && i % Math.ceil(data.length / 10) !== 0 && i !== data.length - 1;
+          const isHover = hoverIdx === i;
           return (
             <g key={i}>
-              <circle cx={toX(i)} cy={toY(d.y)} r="3.5" fill="white" stroke="#2563eb" strokeWidth="2"/>
+              <circle
+                cx={toX(i)} cy={toY(d.y)}
+                r={isHover ? 5 : 3.5}
+                fill="white" stroke="#2563eb" strokeWidth="2"
+                style={{ transition: 'r 0.1s' }}
+              />
+              {/* 히트 영역 확대용 투명 원 — hover/tooltip 트리거 */}
+              <circle
+                cx={toX(i)} cy={toY(d.y)} r="12" fill="transparent"
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(null)}
+                style={{ cursor: 'pointer' }}
+              />
               {!skip && (
                 <text x={toX(i)} y={H - 4} fontSize="9" fill="#9ca3af" textAnchor="middle">{d.label}</text>
               )}
             </g>
           );
         })}
+        {hoverIdx !== null && (() => {
+          const d = data[hoverIdx];
+          const px = toX(hoverIdx);
+          const py = toY(d.y);
+          const label = `${d.y}점`;
+          const boxW = 18 + label.length * 7;
+          const boxH = 22;
+          let bx = px - boxW / 2;
+          bx = Math.max(PAD.left, Math.min(bx, W - PAD.right - boxW));
+          const by = Math.max(PAD.top, py - boxH - 10);
+          return (
+            <g style={{ pointerEvents: 'none' }}>
+              <line x1={px} x2={px} y1={py} y2={PAD.top + iH} stroke="#2563eb" strokeWidth="1" strokeDasharray="2,2" opacity="0.4"/>
+              <rect x={bx} y={by} width={boxW} height={boxH} rx="5" fill="white" stroke="#2563eb" strokeWidth="1.5"/>
+              <text x={bx + boxW / 2} y={by + boxH / 2 + 4} fontSize="11" fontWeight="700" fill="#2563eb" textAnchor="middle">{label}</text>
+            </g>
+          );
+        })()}
       </svg>
     </div>
   );
 }
 
 export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token, onLogin }) {
-  const [sessions,      setSessions]      = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [filterType,    setFilterType]    = useState('all');
-  const [filterAud,     setFilterAud]     = useState('all');
-  const [sortBy,        setSortBy]        = useState('date');
+  const [sessions,         setSessions]         = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [deleteConfirm,    setDeleteConfirm]    = useState(null);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState(false);
+  const [filterType,       setFilterType]       = useState('all');
+  const [filterAud,        setFilterAud]        = useState('all');
+  const [sortBy,           setSortBy]           = useState('date');
 
   useEffect(() => {
       if (!token) {
         setLoading(false);
         return;
       }
-    fetch(`${API}/api/v1/users/1/sessions`)
+    setLoading(true);
+    fetch(`${API}/api/v1/users/me/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then(r => r.json())
       .then(data => setSessions(Array.isArray(data) ? data : []))
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
   async function handleDelete(sessionId) {
     try {
-      await fetch(`${API}/api/v1/sessions/${sessionId}`, { method: 'DELETE' });
+      const res = await fetch(`${API}/api/v1/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`삭제 실패: ${res.status}`);
       setSessions(prev => prev.filter(s => (s.session_id ?? s.id) !== sessionId));
     } catch (e) {
       console.error('삭제 실패', e);
     } finally {
       setDeleteConfirm(null);
+    }
+  }
+
+  async function handleDeleteAll() {
+    try {
+      await fetch(`${API}/api/v1/users/me/sessions`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSessions([]);
+    } catch (e) {
+      console.error('전체 삭제 실패', e);
+    } finally {
+      setDeleteAllConfirm(false);
     }
   }
 
@@ -133,7 +188,11 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
         </div>
         <div className="nav-right">
           <button className="btn-blue" onClick={onSetup}>새 세션</button>
-          {onLogout && <button className="btn-line" onClick={onLogout}>로그아웃</button>}
+          {token ? (
+            <button className="btn-line" onClick={onLogout}>로그아웃</button>
+          ) : (
+            <button className="btn-line" onClick={onLogin}>로그인</button>
+          )}
         </div>
       </nav>
 
@@ -143,6 +202,9 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
             <h1 className="history-h">발표 히스토리</h1>
             <div className="history-sub">총 {total}회 세션 · 항목을 클릭하면 상세 리포트를 볼 수 있습니다</div>
           </div>
+          {total > 0 && (
+            <button className="btn-line" onClick={() => setDeleteAllConfirm(true)}>전체 삭제</button>
+          )}
         </div>
 
         {total > 0 && (
@@ -227,7 +289,7 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
                   <div className="hi-num">#{filtered.length - i}</div>
                   <div className="hi-info">
                     <div className="hi-title">{type} · {aud} · {diff}</div>
-                    <div className="hi-meta">{date} · {dur} · {s.interrupt_enabled ? '돌발 질문' : '질문 없음'}</div>
+                    <div className="hi-meta">{date} · {dur} · {(s.interrupt_count ?? 0) > 0 ? `돌발 질문 ${s.interrupt_count}회` : '질문 없음'}</div>
                   </div>
                   <div className={`hi-score ${scoreClass(score)}`}>{score}</div>
                   <div className={`hi-badge${isBest ? ' best' : ''}`}>{isBest ? '🏆 최고' : '→'}</div>
@@ -263,6 +325,35 @@ export default function HistoryPage({ onHome, onSetup, onLogout, onDetail, token
                 border: 'none', background: 'var(--red)', color: 'white',
                 cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 700,
               }}>삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteAllConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 12, padding: '28px 32px',
+            width: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>정말 히스토리 전체를 삭제하시겠습니까?</div>
+            <div style={{ fontSize: 13, color: 'var(--ink2)', marginBottom: 24, lineHeight: 1.6 }}>
+              삭제된 세션은 복구할 수 없습니다.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setDeleteAllConfirm(false)} style={{
+                flex: 1, padding: '10px', borderRadius: 7, fontSize: 13,
+                border: '1px solid var(--border2)', background: 'white',
+                cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 500,
+              }}>취소</button>
+              <button onClick={handleDeleteAll} style={{
+                flex: 1, padding: '10px', borderRadius: 7, fontSize: 13,
+                border: 'none', background: 'var(--red)', color: 'white',
+                cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 700,
+              }}>확인</button>
             </div>
           </div>
         </div>

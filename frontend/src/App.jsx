@@ -9,7 +9,7 @@ import SessionDetailPage from './pages/SessionDetailPage';
 import { createSession } from './services/claudeApi';
 
 const INITIAL_SIM = {
-  type: 'interview', audience: 'boss', audienceCount: 4,
+  type: 'academic', audience: 'professor', audienceCount: 4,
   difficulty: 'medium', duration: 3, interrupt: true, script: '',
   elapsed: 0, transcript: '', wordCount: 0, fillerCount: 0,
   wpmHistory: [], interruptLog: [], sessionId: null,
@@ -62,7 +62,9 @@ export default function App() {
   }, []);
 
   function handleLogin(data) {
-    setToken(data.access_token);
+    const accessToken = data.access_token;
+    localStorage.setItem('token', accessToken);
+    setToken(accessToken);
     go('home');
   }
 
@@ -77,12 +79,31 @@ export default function App() {
     setLoading(true);
     setStartError(null);
     try {
-      const session = await createSession(config);
+      // React state가 비어도 localStorage 토큰으로 재시도
+      const authToken = token || localStorage.getItem('token');
+      if (!authToken) {
+        setStartError('로그인이 필요합니다. 다시 로그인해주세요.');
+        setLoginConfirm(true);
+        return;
+      }
+      if (!token && authToken) setToken(authToken);
+
+      const session = await createSession(config, authToken);
       setSimState({ ...INITIAL_SIM, ...config, sessionId: session.session_id });
       go('sim');
     } catch (e) {
       console.error('[API] 세션 생성 실패:', e.message);
-      setStartError('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인해주세요.');
+      const msg = String(e?.message || '');
+      if (msg.includes('401')) {
+        localStorage.removeItem('token');
+        setToken(null);
+        setStartError('로그인이 만료되었거나 유효하지 않습니다. 다시 로그인해주세요.');
+        setLoginConfirm(true);
+      } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        setStartError('서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인해주세요.');
+      } else {
+        setStartError(`세션을 시작할 수 없습니다. (${msg || '알 수 없는 오류'})`);
+      }
     } finally {
       setLoading(false);
     }
@@ -156,6 +177,8 @@ export default function App() {
           onLogout={handleLogout}
           onHome={() => go('home')}
           onHistory={() => go('history')}
+          token={token}
+          onLogin={() => go('login')}
         />
       )}
       {page === 'sim'     && <SimPage simState={simState} onStop={handleStop} onCancel={() => go('setup', { replace: true })} />}

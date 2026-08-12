@@ -11,12 +11,14 @@ function mapDifficulty(d) {
 
 // ── 세션 관리 ─────────────────────────────────────────────
 
-export async function createSession(config) {
+export async function createSession(config, token) {
   const res = await fetch(`${API_BASE}/api/v1/sessions`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body:    JSON.stringify({
-      user_id:           1,
       presentation_type: config.type,
       audience_type:     config.audience,
       audience_count:    config.audienceCount,
@@ -24,6 +26,7 @@ export async function createSession(config) {
       duration_seconds:  config.duration * 60,
       interrupt_enabled: config.interrupt,
       script_text:       config.script || null,
+      title:             config.title || null,
     }),
   });
   if (!res.ok) throw new Error(`세션 생성 실패: ${res.status}`);

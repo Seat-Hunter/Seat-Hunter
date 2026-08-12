@@ -27,7 +27,6 @@ const AUDIENCE_TIES = {
   general:   ['#C62828','#1A237E','#880E4F','#1B5E20','#4A148C','#B71C1C','#AD1457','#C62828','#1B5E20','#4A148C'],
 };
 const CHAIR_COLORS = {
-  interview:   { back:'#6D4C41', desk:'#8D6E63', deskTop:'#A1887F' },
   audiovisual: { back:'#8B1A1A', desk:null,      deskTop:null },
   classroom:   { back:'#4E342E', desk:'#6B9B6B', deskTop:'#7AB87A' },
   meeting:     { back:'#37474F', desk:'#78909C', deskTop:'#90A4AE' },
@@ -290,7 +289,7 @@ function makeBackgroundObjects(roomType) {
   let objs = '';
   if (roomType === 'classroom' || roomType === 'audiovisual') {
     objs = `<svg class="bg-curtain-l" style="position:absolute; left:2%; top:5%; width:90px; height:120px; opacity:0.15;" viewBox="0 0 60 100"><rect x="0" y="0" width="60" height="8" fill="#555"/><rect x="4" y="10" width="52" height="2" fill="#888"/><rect x="4" y="16" width="52" height="2" fill="#888"/><rect x="4" y="22" width="52" height="2" fill="#888"/><rect x="4" y="28" width="52" height="2" fill="#888"/><rect x="4" y="34" width="52" height="2" fill="#888"/><rect x="4" y="40" width="52" height="2" fill="#888"/><line x1="54" y1="10" x2="54" y2="90" stroke="#666" stroke-width="1"/></svg><svg class="bg-plant-r" style="position:absolute; right:3%; bottom:8%; width:75px; height:150px; z-index:1" viewBox="0 0 50 100"><ellipse cx="25" cy="45" rx="14" ry="22" fill="#2E7D32" opacity="0.85"/><ellipse cx="15" cy="50" rx="12" ry="18" fill="#1B5E20" opacity="0.9"/><ellipse cx="33" cy="52" rx="11" ry="17" fill="#388E3C" opacity="0.85"/><ellipse cx="24" cy="32" rx="10" ry="18" fill="#4CAF50" opacity="0.75"/><line x1="25" y1="40" x2="25" y2="75" stroke="#5D4037" stroke-width="2.5"/><polygon points="14,75 36,75 32,98 18,98" fill="#B0BEC5"/><ellipse cx="25" cy="75" rx="11" ry="3" fill="#78909C"/></svg>`;
-  } else if (roomType === 'meeting' || roomType === 'interview') {
+  } else if (roomType === 'meeting') {
     objs = `<svg class="bg-cabinet-l" style="position:absolute; left:4%; bottom:5%; width:80px; height:110px;" viewBox="0 0 50 70"><rect x="2" y="25" width="46" height="42" rx="1" fill="#A1887F"/><rect x="5" y="30" width="40" height="10" fill="#7E57C2" opacity="0.15"/><circle cx="25" cy="35" r="2" fill="#4E342E"/><rect x="5" y="44" width="40" height="10" fill="#7E57C2" opacity="0.15"/><circle cx="25" cy="49" r="2" fill="#4E342E"/><rect x="5" y="58" width="40" height="6" fill="#7E57C2" opacity="0.15"/><rect x="20" y="15" width="10" height="10" fill="#D7CCC8"/><path d="M22 15 Q20 5 25 2 Q30 5 28 15Z" fill="#2E7D32"/><circle cx="22" cy="8" r="1.5" fill="#FF4081"/></svg><svg class="bg-curtain-r" style="position:absolute; right:2%; top:0; width:60px; height:100%; opacity:0.12;" viewBox="0 0 40 150"><path d="M0,0 Q10,75 0,150 L40,150 Q30,75 40,0 Z" fill="#3F51B5"/></svg>`;
   }
   return objs;
@@ -332,9 +331,7 @@ export default function AudienceSimulator({ roomType='classroom', audienceType='
     const colors = Array.from({ length: Math.max(count, 12) }, (_, i) => getColors(audienceType, i));
     const ch = CHAIR_COLORS[roomType] || CHAIR_COLORS.classroom;
     
-    if (roomType === 'interview') {
-      renderInterview(area, colors, ch, memberMoods);
-    } else if (roomType === 'audiovisual') {
+    if (roomType === 'audiovisual') {
       const seatSeq = fixedSeatsMap.audiovisual || [...Array(20).keys()];
       renderAudiovisual(area, colors, ch, count, memberMoods, seatSeq);
     } else if (roomType === 'classroom') {
@@ -353,16 +350,6 @@ export default function AudienceSimulator({ roomType='classroom', audienceType='
       <div ref={areaRef} className="audience-sim-area" style={{position:'absolute', top:'50%', left:0, transform:'translateY(-42%)', width:'100%', height:'100%', zIndex:5, overflow:'visible'}} />
     </div>
   );
-}
-
-function renderInterview(area, colors, ch, moods) {
-  area.style.cssText = 'width:100%;height:100%;position:absolute;display:flex;flex-direction:row;gap:4px;justify-content:center;align-items:center;padding:0 1rem;overflow:visible';
-  for (let i = 0; i < 4; i++) {
-    const div = document.createElement('div');
-    div.className = 'sim-member-wrap';
-    div.innerHTML = `<div class="sim-svg-slot" style="overflow:visible; display:flex; align-items:center;">${makeSVG(moods[i]||'neutral', colors[i % colors.length], ch, 0, true, 1)}</div>`;
-    area.appendChild(div);
-  }
 }
 
 function renderAudiovisual(area, colors, ch, count, moods, seatSeq) {
